@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Time horizons, extrapolated to 2030</title>
+<style>
+:root{--bg:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--ink3:#8a8985;--grid:#e6e5e1;--metr:#2a78d6;--fast:#eb6834;--spec:#1baf7a;--card:#fff;--border:#e2e1dc}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--ink3:#8f8e88;--grid:#2e2e2c;--metr:#3987e5;--fast:#f07a48;--spec:#2cc48c;--card:#222221;--border:#33332f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:28px 20px 60px}
+h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--ink2);margin:0 0 18px;max-width:760px}
+.controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 10px}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--ink2);padding:6px 14px;font:inherit;cursor:pointer}
+.seg button.on{background:var(--ink);color:var(--bg)}
+label.chk{color:var(--ink2);display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.chart{position:relative;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:8px}
+svg{display:block;width:100%;height:auto}
+.axis text{fill:var(--ink2);font-size:12px}
+.axis line,.axis path{stroke:var(--grid)}
+.grid line{stroke:var(--grid)}
+.tip{position:absolute;pointer-events:none;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.12);max-width:260px;display:none;z-index:2}
+.tip b{display:block}
+.tip .muted{color:var(--ink3);font-size:12px}
+.legend{display:flex;gap:18px;flex-wrap:wrap;color:var(--ink2);font-size:13px;margin:10px 4px 0}
+.legend span i{display:inline-block;width:22px;height:0;border-top:2px solid;vertical-align:middle;margin-right:6px}
+.legend span i.dot{width:9px;height:9px;border-radius:50%;border:2px solid;margin-right:7px}
+.note{color:var(--ink2);font-size:14px;margin-top:22px;max-width:760px}
+.note code{font-size:13px}
+table{border-collapse:collapse;font-size:13px;margin-top:10px;width:100%}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--border)}
+th{color:var(--ink2);font-weight:600}
+details summary{cursor:pointer;color:var(--ink2);margin-top:22px}
+a{color:var(--metr)}
+</style>
+</head>
+<body>
+<main>
+<h1>If the slope holds: METR time horizons to 2030</h1>
+<p class="sub">METR's <a href="https://metr.org/time-horizons/">time-horizon</a> data (Horizon v1.1, fetched 2026-08-29) — the length of software tasks, in human-expert time, that a model completes with a given success rate. The orange dotted line is the slope from GPT-4o to Claude Mythos Preview, run out to the end of 2030. Green hollow dots are made-up future models placed on that line. This is speculation for fun, not a forecast.</p>
+
+<div class="controls">
+  <div class="seg" id="pick"><button data-p="p50" class="on">50% success</button><button data-p="p80">80% success</button></div>
+  <label class="chk"><input type="checkbox" id="ci" checked> confidence intervals</label>
+  <label class="chk"><input type="checkbox" id="spec" checked> speculative models</label>
+  <label class="chk"><input type="checkbox" id="lbl" checked> labels</label>
+</div>
+
+<div class="chart"><svg id="svg"></svg><div class="tip" id="tip"></div></div>
+<div class="legend">
+  <span><i style="border-color:var(--ink3)"></i>METR-style fit, 2023 onward (all models)</span>
+  <span><i style="border-color:var(--fast);border-top-style:dotted"></i>GPT-4o → Mythos slope, extrapolated</span>
+  <span><i class="dot" style="border-color:var(--metr);background:var(--metr)"></i>measured model</span>
+  <span><i class="dot" style="border-color:var(--spec)"></i>speculative model (invented)</span>
+</div>
+
+<div class="note" id="note"></div>
+
+<details><summary>Data table</summary><div id="table"></div></details>
+<p class="note" style="font-size:13px">Data: METR, <a href="https://metr.org/time-horizons/">metr.org/time-horizons</a> (<code>benchmark_results_1_1.yaml</code>). Work units follow METR's convention: 1 work day = 8 h, 1 work week = 40 h, 1 work month = 167 h, 1 work year = 2,000 h. Source on <a href="https://github.com/swombat/time-horizons">GitHub</a>.</p>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="data.js"></script>
+<script>
+const D = window.TH_DATA;
+const models = D.models.map(m => ({...m, t: new Date(m.date)}));
+// ---- speculative models: dates only; y-values come from the fast line ----
+const SPEC = [
+  ['GPT-6 "Astra"',      '2026-11-15'],
+  ['Grok 5',             '2026-12-10'],
+  ['Fable 5.5',          '2027-03-05'],
+  ['Gemini 4 Pro',       '2027-06-01'],
+  ['Mythos 6',           '2027-09-01'],
+  ['GPT-7',              '2028-03-01'],
+  ['Fable 6',            '2028-08-01'],
+  ['Gemini 5 Ultra',     '2029-02-01'],
+  ['Mythos 7',           '2029-08-01'],
+  ['GPT-8',              '2030-03-01'],
+  ['Mythos 8',           '2030-11-01'],
+].map(([name,date]) => ({name, t:new Date(date), date}));
+
+const DAY = 864e5;
+const fmtH = m => {                       // minutes -> human-ish label
+  if (m < 1) return (m*60).toFixed(0)+' sec';
+  if (m < 60) return d3.format('.3~s')(m)+' min';
+  const h = m/60;
+  if (h < 8) return d3.format('.2~f')(h)+' hrs';
+  const wd = h/8; if (h < 40) return d3.format('.2~f')(wd)+' work days';
+  const wk = h/40; if (h < 167) return d3.format('.2~f')(wk)+' work wks';
+  const mo = h/167; if (h < 2000) return d3.format('.2~f')(mo)+' work months';
+  const yr = h/2000; if (yr < 1000) return d3.format('.3~s')(yr)+' work yrs';
+  return d3.format('.3~s')(yr)+' work yrs';
+};
+const TICKS = [
+  [1/60,'1 sec'],[4/60,'4 sec'],[15/60,'15 sec'],[1,'1 min'],[4,'4 min'],[15,'15 min'],[60,'1 hr'],
+  [480,'1 work day'],[2400,'1 work week'],[10020,'1 work month'],[120000,'1 work year'],
+  [1200000,'10 work yrs'],[12000000,'100 work yrs'],[120000000,'1,000 work yrs'],[1.2e9,'10,000 work yrs'],[1.2e10,'100,000 work yrs'],[1.2e11,'1M work yrs']
+];
+
+// ---- fits (OLS on log2 minutes vs days) ----
+function fit(points){ // points: [{t,y}]
+  const x = points.map(p=>p.t/DAY), y = points.map(p=>Math.log2(p.y));
+  const mx = d3.mean(x), my = d3.mean(y);
+  const b = d3.sum(x.map((xi,i)=>(xi-mx)*(y[i]-my)))/d3.sum(x.map(xi=>(xi-mx)**2));
+  const a = my - b*mx;
+  return {a,b, doubling: 1/b, at: t => 2**(a + b*(t/DAY))};
+}
+function twoPoint(p1,p2){
+  const b = (Math.log2(p2.y)-Math.log2(p1.y))/((p2.t-p1.t)/DAY);
+  const a = Math.log2(p1.y) - b*(p1.t/DAY);
+  return {a,b, doubling:1/b, at: t => 2**(a + b*(t/DAY))};
+}
+
+let P='p50', showCI=true, showSpec=true, showLbl=true;
+const svg = d3.select('#svg'), tip = document.getElementById('tip');
+
+function render(){
+  const W = Math.min(1060, document.querySelector('.chart').clientWidth-16), H = Math.max(520, Math.round(W*0.6));
+  const M = {t:20,r:24,b:36,l:118};
+  svg.attr('viewBox',`0 0 ${W} ${H}`).selectAll('*').remove();
+  const pts = models.map(m=>({...m, y:m[P][0], lo:m[P][1], hi:m[P][2]}));
+  const gpt4o = pts.find(m=>m.id==='gpt_4o_inspect'), mythos = pts.find(m=>m.id==='claude_mythos_preview_early_inspect');
+  const fast = twoPoint(gpt4o, mythos);
+  const metr = fit(pts.filter(m=>m.t>=new Date('2023-01-01')));
+  const t0 = new Date('2019-01-01'), t1 = new Date('2031-01-01');
+  const spec = SPEC.map(s=>({...s, y:fast.at(s.t), spec:true}));
+  const yTop = Math.max(fast.at(t1), d3.max(pts,m=>m.hi))*2;
+  const x = d3.scaleTime().domain([t0,t1]).range([M.l, W-M.r]);
+  const y = d3.scaleLog().domain([0.02, yTop]).range([H-M.b, M.t]);
+
+  // grid + axes
+  const ticks = TICKS.filter(([v])=>v>=0.02 && v<=yTop);
+  svg.append('g').attr('class','grid').selectAll('line').data(ticks).join('line')
+    .attr('x1',M.l).attr('x2',W-M.r).attr('y1',d=>y(d[0])).attr('y2',d=>y(d[0]));
+  svg.append('g').attr('class','axis').attr('transform',`translate(${M.l},0)`)
+    .call(d3.axisLeft(y).tickValues(ticks.map(t=>t[0])).tickFormat((v,i)=>ticks[i][1]).tickSize(0)).select('.domain').remove();
+  svg.append('g').attr('class','axis').attr('transform',`translate(0,${H-M.b})`)
+    .call(d3.axisBottom(x).ticks(d3.timeYear.every(1)).tickFormat(d3.timeFormat('%Y')).tickSize(0).tickPadding(10)).select('.domain').remove();
+  svg.append('g').attr('class','grid').selectAll('line').data(d3.timeYear.range(t0,t1)).join('line')
+    .attr('y1',M.t).attr('y2',H-M.b).attr('x1',d=>x(d)).attr('x2',d=>x(d)).attr('stroke-dasharray','2 4');
+  // "today" marker
+  const now = new Date('2026-08-29');
+  svg.append('line').attr('x1',x(now)).attr('x2',x(now)).attr('y1',M.t).attr('y2',H-M.b).attr('stroke','var(--ink3)').attr('stroke-dasharray','4 4').attr('opacity',.6);
+  svg.append('text').attr('x',x(now)+5).attr('y',M.t+12).attr('fill','var(--ink3)').attr('font-size',11).text('today');
+
+  // lines
+  const line = (f,a,b) => d3.line().x(d=>x(d)).y(d=>y(f.at(d)))(d3.timeMonth.range(a,b));
+  svg.append('path').attr('d',line(metr,new Date('2023-01-01'),t1)).attr('fill','none').attr('stroke','var(--ink3)').attr('stroke-width',2).attr('opacity',.8);
+  svg.append('path').attr('d',line(fast,gpt4o.t,t1)).attr('fill','none').attr('stroke','var(--fast)').attr('stroke-width',2.5).attr('stroke-dasharray','3 6').attr('stroke-linecap','round');
+
+  // CI
+  if (showCI) svg.append('g').selectAll('line').data(pts).join('line')
+    .attr('x1',d=>x(d.t)).attr('x2',d=>x(d.t)).attr('y1',d=>y(d.lo)).attr('y2',d=>y(d.hi)).attr('stroke','var(--metr)').attr('stroke-width',1.5).attr('opacity',.5);
+
+  // measured dots
+  const g = svg.append('g');
+  g.selectAll('circle').data(pts).join('circle').attr('cx',d=>x(d.t)).attr('cy',d=>y(d.y)).attr('r',5)
+    .attr('fill','var(--metr)').attr('stroke','var(--card)').attr('stroke-width',2)
+    .attr('opacity',d=>d.sota?1:.55);
+  // speculative dots
+  if (showSpec) g.selectAll('.s').data(spec).join('circle').attr('class','s').attr('cx',d=>x(d.t)).attr('cy',d=>y(d.y)).attr('r',5.5)
+    .attr('fill','var(--card)').attr('stroke','var(--spec)').attr('stroke-width',2.5);
+
+  // labels (selective)
+  if (showLbl){
+    const keep = new Set(['gpt_4','gpt_4o_inspect','o1_inspect','claude_3_7_sonnet_inspect','o3_inspect','gpt_5_2025_08_07_inspect','claude_opus_4_5_inspect','claude_opus_4_6_inspect','claude_mythos_preview_early_inspect','gpt2','gpt_3_5_turbo_instruct']);
+    const L = pts.filter(m=>keep.has(m.id)).map(m=>({name:m.name,t:m.t,y:m.y,c:'var(--ink2)'}));
+    const S = showSpec ? spec.map(s=>({name:s.name,t:s.t,y:s.y,c:'var(--spec)'})) : [];
+    const right = d => x(d.t) > W-M.r-90;
+    svg.append('g').selectAll('text').data(L.concat(S)).join('text')
+      .attr('x',d=>x(d.t)+(right(d)?-9:9)).attr('y',(d,i)=>y(d.y)+(d.c==='var(--spec)'&&i%2?12:4))
+      .attr('text-anchor',d=>right(d)?'end':'start').attr('fill',d=>d.c).attr('font-size',11).text(d=>d.name);
+  }
+
+  // hover
+  const all = pts.concat(showSpec?spec:[]);
+  svg.append('rect').attr('x',M.l).attr('y',M.t).attr('width',W-M.l-M.r).attr('height',H-M.t-M.b).attr('fill','transparent')
+    .on('mousemove',ev=>{
+      const [mx,my] = d3.pointer(ev);
+      const near = d3.least(all, d=>Math.hypot(x(d.t)-mx, y(d.y)-my));
+      const dist = Math.hypot(x(near.t)-mx, y(near.y)-my);
+      if (dist>28){tip.style.display='none';return;}
+      tip.style.display='block';
+      const r = document.querySelector('.chart').getBoundingClientRect();
+      tip.style.left = Math.min(ev.clientX - r.left + 14, r.width-270)+'px'; tip.style.top = (ev.clientY - r.top + 14)+'px';
+      tip.innerHTML = near.spec
+        ? `<b>${near.name}</b><span class="muted">invented model · ${near.date}</span>${P.slice(1)}% horizon on the fast line: <b>${fmtH(near.y)}</b>`
+        : `<b>${near.name}</b><span class="muted">${near.date}${near.sota?' · SOTA at release':''}</span>${P.slice(1)}% horizon: <b>${fmtH(near.y)}</b><span class="muted">CI ${fmtH(near.lo)} – ${fmtH(near.hi)}</span>`;
+    }).on('mouseleave',()=>tip.style.display='none');
+
+  // note
+  const at = d => fmtH(fast.at(new Date(d)));
+  document.getElementById('note').innerHTML =
+    `<p><b>${P.slice(1)}% horizon.</b> GPT-4o → Mythos Preview implies a doubling time of <b>${fast.doubling.toFixed(0)} days</b> (METR's own from-2023 fit across all models: ${metr.doubling.toFixed(0)} days; METR reports ${D.metr_doubling_days.from_2023_on.point_estimate.toFixed(0)} days on the p50). On the fast line, the ${P.slice(1)}% horizon reaches
+    <b>${at('2027-01-01')}</b> at the start of 2027, <b>${at('2028-01-01')}</b> at 2028, <b>${at('2029-01-01')}</b> at 2029, <b>${at('2030-01-01')}</b> at 2030, and <b>${at('2030-12-31')}</b> by the end of 2030.</p>
+    <p>The caveats are the usual ones: the benchmark tops out — METR's longest tasks are about 16 hours, so horizons beyond a work-week are already extrapolations of a logistic fit, and the confidence intervals on the last few points are enormous. A "work year" of horizon does not mean a model will run for a year; it means the model has a ${P.slice(1)}% shot at tasks a human expert would take a year to do. Nobody has any idea what that means at these scales, and that is rather the point of drawing the line.</p>`;
+
+  // table
+  const rows = pts.map(m=>`<tr><td>${m.date}</td><td>${m.name}</td><td>${fmtH(m.p50[0])}</td><td>${fmtH(m.p80[0])}</td><td>${m.sota?'yes':''}</td></tr>`).join('') +
+    spec.map(s=>`<tr style="color:var(--spec)"><td>${s.date}</td><td>${s.name} (invented)</td><td colspan="3">${fmtH(fast.at(s.t))} on the fast line (${P})</td></tr>`).join('');
+  document.getElementById('table').innerHTML = `<table><tr><th>Release</th><th>Model</th><th>50% horizon</th><th>80% horizon</th><th>SOTA</th></tr>${rows}</table>`;
+}
+document.querySelectorAll('#pick button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#pick button').forEach(x=>x.classList.remove('on'));b.classList.add('on');P=b.dataset.p;render();});
+document.getElementById('ci').onchange=e=>{showCI=e.target.checked;render()};
+document.getElementById('spec').onchange=e=>{showSpec=e.target.checked;render()};
+document.getElementById('lbl').onchange=e=>{showLbl=e.target.checked;render()};
+window.addEventListener('resize',render); render();
+</script>
+</body>
+</html>
